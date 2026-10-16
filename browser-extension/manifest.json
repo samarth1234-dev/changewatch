@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Changewatch — monitor this page",
+  "version": "1.0.0",
+  "description": "Send the current public page URL to your local Changewatch dashboard.",
+  "action": {
+    "default_title": "Monitor this page with Changewatch",
+    "default_popup": "popup.html"
+  },
+  "permissions": ["activeTab", "tabs"]
+}

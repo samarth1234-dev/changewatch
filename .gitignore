@@ -1,0 +1,48 @@
+# Dependencies
+node_modules/
+.next/
+.cache/
+
+# Environment and sensitive data
+.env
+.env.local
+.env.*.local
+*.log
+
+# Backend artifacts & persistent JSON database
+backend/data/
+backend/data/screenshots/
+backend/data/monitor-data.json
+backend/data/*.json
+backend/data/*.png
+
+# OS & IDE artifacts
+.DS_Store
+.idea/
+.vscode/
+.codex-tmp/
+*.swp
+
+# Other unrelated projects in folder
+*.pptx
+*.docx
+*.pdf
+*.apk
+*.R
+*.inspect.ndjson
+proxyproof/
+professor-academy-ballia-*/
+R_Enabled_CCTV_Crowd_Risk_Project/
+data/
+output/
+outputs/
+tmp/
+PRESENTATION_FLOW.md
+R_ANALYSIS_README.md
+VIVA_AND_RUBRIC.md
+VIVA_PREPARATION.md
+create_aicte_resume.py
+study_hours_regression.R
+crowd_risk_analysis.R
+index.js
+README 2.md
