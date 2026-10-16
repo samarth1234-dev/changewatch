@@ -44,7 +44,8 @@ VIVA_PREPARATION.md
 create_aicte_resume.py
 study_hours_regression.R
 crowd_risk_analysis.R
-index.js
+/index.js
 README 2.md
 src/
 snapshots/
+frontend/out/
