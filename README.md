@@ -1,52 +1,84 @@
-# ⌁ changewatch — Website Change Detector
+# ⌁ changewatch — Intelligent Website Change Detector
 
-> **A full-stack, intelligent web page monitoring service.** Renders public web pages using a real Playwright headless browser, establishes baselines, intelligently filters dynamic noise, and dispatches rich visual/text diff alerts only when meaningful content changes occur.
-
----
-
-## 📌 Project Overview
-
-**changewatch** was designed to solve the problem of noisy web monitoring by combining real browser rendering with advanced noise-suppression and differential analysis:
-
-- **Real Browser Execution**: Uses Playwright (Chromium) to execute JavaScript, bypass client-side rendering traps, and capture high-fidelity full-page screenshots.
-- **De-duplication & Throttling**: Shares one browser fetch per URL across multiple monitors, with per-domain throttling and randomized jitter to prevent rate-limiting.
-- **Smart Noise Filters**: Filters out ephemeral noise (timestamps, dates, follower/view counters, rotating banners, and transient UUID tokens) so alerts only fire on genuine content edits.
-- **Version Timeline & Visual Diffs**: Maintains version history with side-by-side text diffs (via `diff-match-patch`) and pixel-level screenshot diff overlays (via `pixelmatch`).
-- **Multi-Channel Alerts**: Webhooks (Discord/Slack), Telegram, Resend Email, and RSS feed endpoints per target.
-- **Interactive Visual Selector & Chrome Extension**: In-app point-and-click visual region picker and lightweight Chromium extension for 1-click URL monitoring.
+> **A modern, full-stack website change detection service.** Built with Next.js, Playwright (Chromium), Express, and Upstash Serverless Redis. Captures high-fidelity full-page screenshots, establishes baseline versions, suppresses dynamic ephemeral noise, and dispatches rich visual/text diff alerts when meaningful content changes occur.
 
 ---
 
-## 🌐 Public Access & Live Cloud Evaluation Links
+## 🌐 Public Access & Live Cloud Submission Links
 
-- **🚀 Live Web Dashboard (Vercel Cloud)**: [https://changewatch-five.vercel.app](https://changewatch-five.vercel.app)
-- **⚙️ Live Backend API (Render Cloud)**: [https://changewatch-backend.onrender.com](https://changewatch-backend.onrender.com)
-- **📦 GitHub Repository**: [https://github.com/samarth1234-dev/changewatch](https://github.com/samarth1234-dev/changewatch)
-- **☁️ Cloud Infrastructure**: Vercel (Edge Frontend) + Render (Node Worker & Playwright) + Upstash Serverless Redis
-- **Local Evaluation**: Zero-config via `npm run dev` and automated verification via `npm test`
+| Service | Platform | Live URL / Endpoint |
+| :--- | :--- | :--- |
+| **🚀 Production Web Dashboard** | **Vercel** | [https://changewatch-five.vercel.app](https://changewatch-five.vercel.app) |
+| **⚙️ Production Backend API** | **Render** | [https://changewatch-backend.onrender.com](https://changewatch-backend.onrender.com) |
+| **📦 GitHub Repository** | **GitHub** | [https://github.com/samarth1234-dev/changewatch](https://github.com/samarth1234-dev/changewatch) |
+| **⚡ Message Queue & Cache** | **Upstash** | `rediss://...upstash.io:6379` (Serverless Redis) |
+| **🩺 API Health Endpoint** | **Render** | [https://changewatch-backend.onrender.com/health](https://changewatch-backend.onrender.com/health) |
 
-*(The repository is fully pre-configured with `vercel.json` for 1-click Vercel frontend deployment and `render.yaml` for 1-click Render backend & Redis worker orchestration).*
+*(The entire system is deployed 100% in the cloud. Evaluators can immediately test the live dashboard on any device without local setup).*
 
 ---
 
-## ⚙️ Setup Instructions for Code Submissions
+## 📌 Core Features & Technical Highlights
+
+1. **Headless Browser Execution (Playwright Chromium)**:
+   - Evaluates client-side JavaScript, handles single-page apps (SPAs), dynamic hydration, and captures full-resolution screenshots.
+2. **De-duplication & Throttling Queue (BullMQ + Upstash Redis)**:
+   - Shares one browser fetch per URL across multiple monitors, with per-domain throttling and randomized jitter to prevent target rate-limiting.
+3. **Smart Ephemeral Noise Suppression**:
+   - Advanced regex and DOM tree filtering to discard timestamps, relative dates ("3 minutes ago"), follower/view counters, rotating banners, and transient UUID tokens.
+4. **Dual Differential Analysis (Text & Pixels)**:
+   - **Text Diffing**: Character and word-level diffs via `diff-match-patch` with added/removed metrics.
+   - **Visual Pixel Diffing**: High-precision visual pixel difference heatmaps via `pixelmatch` and `pngjs`.
+5. **Interactive Visual Region Selector & Chrome Extension**:
+   - Point-and-click in-app visual inspector to target specific elements (`#pricing`, `.stock-count`).
+   - Packaged Chromium browser extension in [`browser-extension/`](./browser-extension) for 1-click URL monitoring directly from your browser.
+6. **Multi-Channel Delivery Engine**:
+   - Immediate dispatch via Webhook (Discord/Slack), Telegram Bot, Resend Email, and target-specific RSS feeds (`/api/targets/:id/rss.xml`).
+7. **Daily Digest & Number Tracking**:
+   - Batch summary digests sent at user-configured hours.
+   - Live numerical extraction with SVG sparkline chart history (`NumberChart`).
+
+---
+
+## 🧪 Automated Verification & Testing
+
+An end-to-end automated test suite verifies all system components (API, Redis, Playwright rendering, BullMQ queue, version snapshots, and RSS generation).
+
+To run verification locally:
+
+```bash
+# Clone the repository
+git clone https://github.com/samarth1234-dev/changewatch.git
+cd changewatch
+
+# Run the 9-point verification suite
+npm test
+```
+
+### Verification Checks Performed:
+```
+✔ PASS  API Health & Redis — Status OK, Redis: connected
+✔ PASS  Next.js Dashboard — HTTP 200 OK at http://localhost:3000
+✔ PASS  Monitor Target Creation — Created target ID with selectors and thresholds
+✔ PASS  Watchlist Target Retrieval — Found active monitors in data store
+✔ PASS  BullMQ Job Enqueue — Enqueued on-demand job with stable URL hash
+✔ PASS  Playwright Browser Capture — Rendered page, computed SHA256, saved baseline screenshot
+✔ PASS  Version Snapshots — Recorded version history and cryptographic hash
+✔ PASS  RSS Feed Endpoint — Generated valid XML RSS channel
+✔ PASS  Daily Digest Engine — Triggered batch digest summarization
+✔ ALL 9 CHANGEWATCH VERIFICATION CHECKS PASSED!
+```
+
+---
+
+## ⚙️ Local Setup Instructions (For Evaluators)
 
 ### 1. Prerequisites
 - **Node.js**: v20 or higher (`node -v`)
-- **Redis**: Running locally on port `6379`
-  ```bash
-  # macOS (Homebrew)
-  brew services start redis
-  # Linux (Ubuntu/Debian)
-  sudo systemctl start redis-server
-  ```
+- **Redis**: Running locally on port `6379` (`brew services start redis` or `docker run -d -p 6379:6379 redis`)
 
 ### 2. Installation
-Clone the repository and install dependencies for both frontend and backend:
-
 ```bash
-cd "/Users/samarthsingh/Documents/New project"
-
 # Install backend dependencies & Playwright Chromium
 npm --prefix backend install
 npx --prefix backend playwright install chromium
@@ -55,7 +87,7 @@ npx --prefix backend playwright install chromium
 npm --prefix frontend install
 ```
 
-### 3. Running the Service
+### 3. Launching Locally
 Launch both the backend API worker and Next.js frontend concurrently with a single command from the project root:
 
 ```bash
@@ -66,67 +98,43 @@ npm run dev
 - **Backend API**: `http://localhost:3001`
 - **Redis Queue**: `redis://127.0.0.1:6379`
 
-> **Note on Data Store**: Do **not** run Prisma commands. This project intentionally uses an embedded zero-friction JSON store (`backend/data/monitor-data.json`) for effortless reviewer setup and reproducible evaluation.
+> **Note on Data Store**: This project uses a zero-friction JSON store (`backend/data/monitor-data.json`) for reproducible reviewer setup without database migrations.
 
 ---
 
-## 🧪 Automated Verification & Testing
-
-An end-to-end automated test suite is included to verify all core system components (API, Redis, Playwright rendering, BullMQ queue, version snapshots, and RSS generation).
-
-Run the verification test suite anytime with:
-
-```bash
-npm test
-```
-
-### Verification Checks Performed:
-1. **API Health & Redis**: Asserts API responsiveness and active Redis connection.
-2. **Next.js Dashboard**: Verifies HTTP 200 and client-side page rendering.
-3. **Monitor Target Creation**: Validates target registration with selectors and sensitivity thresholds.
-4. **Watchlist Retrieval**: Confirms in-memory/JSON persistence and retrieval.
-5. **BullMQ Job Queue & Playwright Render**: Enqueues an on-demand check, launches headless Chromium, and captures page text and baseline screenshot.
-6. **Version Snapshots**: Verifies cryptographic content hashing and version history creation.
-7. **RSS Feed Generation**: Confirms valid XML RSS channel creation.
-8. **Daily Digest Engine**: Tests batch digest summarization and dispatching.
-9. **Automated Cleanup**: Removes test artifacts after completion.
-
----
-
-## 📂 Project Structure
+## 📂 Project Architecture
 
 ```
-├── backend/
-│   ├── data/                 # JSON database and screenshot artifacts
+changewatch/
+├── frontend/                 # Next.js 15 + React 19 Frontend (Deployed on Vercel)
+│   ├── pages/
+│   │   ├── _app.js           # Global layout & styles
+│   │   └── index.js          # Glassmorphic dashboard, visual picker & diff reviewer
+│   ├── styles/
+│   │   └── globals.css       # Responsive, dark-mode glassmorphic theme
+│   ├── next.config.js        # Next.js configuration
+│   └── package.json
+├── backend/                  # Node.js + Express API & Worker (Deployed on Render)
 │   ├── src/
 │   │   ├── alerts.js         # Webhook, Telegram, Email, and Digest dispatchers
 │   │   ├── index.js          # Express REST API routes & scheduler
 │   │   ├── monitoring.js     # Playwright capture, text/pixel diffing, noise filtering
-│   │   ├── redis.js          # Redis connection pool & options
+│   │   ├── redis.js          # Upstash & local Redis connection pool with TLS
 │   │   ├── security.js       # URL validation (SSRF and private IP protections)
 │   │   ├── store.js          # File-backed JSON store adapter
 │   │   ├── summarizer.js     # Factual text summarization & optional AI integration
 │   │   └── services/
 │   │       └── worker.js     # BullMQ background worker
-│   ├── start.js              # Fast-bind entrypoint for API and worker
-│   └── package.json          # Backend dependencies
-├── frontend/
-│   ├── pages/                # Next.js React pages (Interactive Dashboard)
-│   ├── styles/               # Glassmorphic, responsive CSS styles
-│   └── package.json          # Frontend dependencies
-├── browser-extension/        # Chromium extension for 1-click URL monitoring
+│   ├── start.js              # Production fast-bind entrypoint
+│   └── package.json          # Playwright, BullMQ, Express dependencies
+├── browser-extension/        # Chromium extension for 1-click monitoring
+│   ├── manifest.json         # Manifest V3 configuration
+│   ├── popup.html            # Extension popup UI
+│   └── popup.js              # 1-click monitoring integration
 ├── scripts/
 │   ├── dev.js                # Concurrent launcher for API and Frontend
 │   └── test-verification.js  # Automated E2E test suite (`npm test`)
+├── render.yaml               # Render Cloud deployment blueprint
 ├── package.json              # Root orchestration and scripts
-└── README.md                 # Submission documentation
+└── README.md                 # Complete submission documentation
 ```
-
----
-
-## 🚀 Deployment Guide (Production)
-
-For deploying to production environments:
-1. **Frontend**: Deploy `frontend/` to **Vercel** or **Netlify** (`npm run build`). Set `NEXT_PUBLIC_API_URL` to your backend domain.
-2. **Backend API & Worker**: Deploy `backend/` to **Railway**, **Render**, or a **Docker** container with persistent volume for `data/`.
-3. **Queue**: Provision a managed Redis instance (e.g. **Upstash** or **Redis Cloud**) and set `REDIS_URL`.
