@@ -17,16 +17,15 @@
 
 ---
 
-## 🌐 Public Access & Live Evaluation Links
+## 🌐 Public Access & Live Cloud Evaluation Links
 
-- **🚀 Live Deployed Web Dashboard (Public HTTPS)**: [https://c4321f92b238da.lhr.life](https://c4321f92b238da.lhr.life)
+- **🚀 Live Web Dashboard (Vercel Cloud)**: [https://changewatch-web.vercel.app](https://changewatch-web.vercel.app)
+- **⚙️ Live Backend API (Render Cloud)**: [https://changewatch-api.onrender.com](https://changewatch-api.onrender.com)
 - **📦 GitHub Repository**: [https://github.com/samarth1234-dev/changewatch](https://github.com/samarth1234-dev/changewatch)
-- **⚡ Vercel Deployment**: [https://changewatch-web.vercel.app](https://changewatch-web.vercel.app)
-- **Local Dashboard**: [http://localhost:3000](http://localhost:3000)
-- **API Health Endpoint**: [http://localhost:3001/health](http://localhost:3001/health)
-- **Target Watchlist API**: [http://localhost:3001/api/targets](http://localhost:3001/api/targets)
+- **☁️ Cloud Infrastructure**: Vercel (Edge Frontend) + Render (Node Worker & Playwright) + Redis/Supabase Cloud Store
+- **Local Evaluation**: Zero-config via `npm run dev` and automated verification via `npm test`
 
-*(Evaluators can immediately open the live public link above to interact with the responsive glassmorphic dashboard, trigger real-time Playwright checks, view pixel/text diffs, and inspect version timelines).*
+*(The repository is fully pre-configured with `vercel.json` for 1-click Vercel frontend deployment and `render.yaml` for 1-click Render backend & Redis worker orchestration).*
 
 ---
 
