@@ -19,10 +19,10 @@
 
 ## 🌐 Public Access & Live Cloud Evaluation Links
 
-- **🚀 Live Web Dashboard (Vercel Cloud)**: [https://changewatch-web.vercel.app](https://changewatch-web.vercel.app)
-- **⚙️ Live Backend API (Render Cloud)**: [https://changewatch-api.onrender.com](https://changewatch-api.onrender.com)
+- **🚀 Live Web Dashboard (Vercel Cloud)**: [https://changewatch-five.vercel.app](https://changewatch-five.vercel.app)
+- **⚙️ Live Backend API (Render Cloud)**: [https://changewatch-backend.onrender.com](https://changewatch-backend.onrender.com)
 - **📦 GitHub Repository**: [https://github.com/samarth1234-dev/changewatch](https://github.com/samarth1234-dev/changewatch)
-- **☁️ Cloud Infrastructure**: Vercel (Edge Frontend) + Render (Node Worker & Playwright) + Redis/Supabase Cloud Store
+- **☁️ Cloud Infrastructure**: Vercel (Edge Frontend) + Render (Node Worker & Playwright) + Upstash Serverless Redis
 - **Local Evaluation**: Zero-config via `npm run dev` and automated verification via `npm test`
 
 *(The repository is fully pre-configured with `vercel.json` for 1-click Vercel frontend deployment and `render.yaml` for 1-click Render backend & Redis worker orchestration).*
