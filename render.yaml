@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: changewatch-backend
+    env: node
+    rootDir: backend
+    buildCommand: npm install && npx playwright install chromium
+    startCommand: node start.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: changewatch-redis
+          property: connectionString
+  - type: redis
+    name: changewatch-redis
+    ipAllowList: []
