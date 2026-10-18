@@ -23,7 +23,22 @@ const AUTO_IGNORE_SELECTORS = [
 fs.mkdirSync(SCREENSHOT_DIR, { recursive: true });
 fs.mkdirSync(PREVIEW_DIR, { recursive: true });
 
+const CHROMIUM_LAUNCH_OPTIONS = {
+  headless: true,
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-zygote',
+    '--single-process',
+  ],
+};
+
 function getChromium() {
+  if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    process.env.PLAYWRIGHT_BROWSERS_PATH = '0';
+  }
   if (!chromium) ({ chromium } = require('playwright'));
   return chromium;
 }
@@ -114,10 +129,148 @@ async function makeVisualDiff(previousPath, currentPath, targetId) {
   return { path: publicFilePath(filePath), pixels };
 }
 
+async function checkUrlWithCheerio(url, targets) {
+  const cheerio = require('cheerio');
+  const checkedAt = new Date();
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 ChangeWatch/1.0',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const statusCode = response.status;
+  if (!response.ok) {
+    throw Object.assign(new Error(`Page returned HTTP ${statusCode}.`), { monitorStatus: 'ERROR' });
+  }
+
+  const html = await response.text();
+  const $ = cheerio.load(html);
+
+  for (const selector of AUTO_IGNORE_SELECTORS) {
+    try { $(selector).remove(); } catch (_) {}
+  }
+
+  for (const target of targets) {
+    try {
+      const target$ = cheerio.load($.html());
+      if (target.ignoreSelectors) {
+        const ignored = String(target.ignoreSelectors).split(',').map((s) => s.trim()).filter(Boolean);
+        for (const selector of ignored) {
+          try { target$(selector).remove(); } catch (_) {}
+        }
+      }
+
+      let content = '';
+      if (target.cssSelector) {
+        const selected = target$(target.cssSelector);
+        if (!selected.length) throw new Error(`Watch selector not found: ${target.cssSelector}`);
+        content = selected.text();
+      } else {
+        content = target$('body').text();
+      }
+
+      const text = filterNoise(content).slice(0, 100_000);
+      const currentHash = hash(text);
+      const previousHash = target.lastHash;
+      const didChange = Boolean(previousHash && previousHash !== currentHash);
+      const percentage = didChange ? changePercent(target.lastText || '', text) : 0;
+      const meaningful = didChange && percentage >= target.sensitivity;
+      const isNewVersion = !previousHash || didChange || !target.lastVersionId;
+
+      let number = { raw: null, value: null };
+      if (target.numberSelector) {
+        const numLocator = target$(target.numberSelector).first();
+        if (numLocator.length) {
+          const raw = numLocator.text().trim().slice(0, 200);
+          number = { raw, value: parseNumber(raw) };
+        }
+      }
+
+      const summary = didChange ? diffSummary(target.lastText || '', text) : { added: '', removed: '' };
+      let screenshotPath = target.lastScreenshotPath;
+      let version = null;
+
+      if (isNewVersion) {
+        version = createVersion(target.id, {
+          hash: currentHash,
+          text,
+          screenshotPath: screenshotPath ? publicFilePath(screenshotPath) : null,
+          numberValue: number.value,
+          numberRaw: number.raw,
+          sourceUrl: url,
+        });
+      }
+
+      const status = meaningful ? 'CHANGED' : didChange ? 'SUPPRESSED' : 'OK';
+      const ai = meaningful
+        ? await summarizeChange({ targetName: target.name, summary, percent: percentage, enabled: target.aiSummaryEnabled })
+        : { text: '', provider: null };
+      const message = !previousHash
+        ? 'Initial baseline captured (Fast HTML mode).'
+        : meaningful ? 'Meaningful change detected.'
+          : didChange ? 'Change suppressed by sensitivity threshold.' : 'No meaningful change.';
+
+      const history = addHistory(target.id, {
+        status: previousHash ? status : 'INITIAL',
+        statusCode,
+        changePercent: percentage,
+        summary,
+        aiSummary: ai.text,
+        aiProvider: ai.provider,
+        numberValue: number.value,
+        numberRaw: number.raw,
+        versionId: version?.id || target.lastVersionId || null,
+        previousVersionId: didChange ? target.lastVersionId : null,
+        screenshotPath: version?.screenshotPath || null,
+        visualDiffPath: null,
+        visualDiffPixels: 0,
+        message,
+      });
+
+      const updatedTarget = updateTarget(target.id, {
+        status: meaningful ? 'CHANGED' : 'OK',
+        statusMessage: message,
+        lastHash: currentHash,
+        lastText: text,
+        lastCheckedAt: checkedAt.toISOString(),
+        lastChangedAt: meaningful ? checkedAt.toISOString() : target.lastChangedAt,
+        lastScreenshotPath: screenshotPath,
+        lastVersionId: version?.id || target.lastVersionId || null,
+        nextCheckAt: new Date(checkedAt.getTime() + target.intervalMinutes * 60_000 + Math.floor(Math.random() * 45_000)).toISOString(),
+      });
+
+      if (meaningful) {
+        await sendChangeAlert(updatedTarget, {
+          ...history,
+          hash: currentHash,
+          versionId: version?.id || target.lastVersionId,
+          previousVersionId: target.lastVersionId,
+        });
+      }
+    } catch (err) {
+      updateTarget(target.id, {
+        status: 'ERROR', statusMessage: err.message, lastCheckedAt: checkedAt.toISOString(),
+        nextCheckAt: new Date(checkedAt.getTime() + target.intervalMinutes * 60_000).toISOString(),
+      });
+      addHistory(target.id, { status: 'ERROR', message: err.message });
+    }
+  }
+  return { targets: targets.length, statusCode, mode: 'cheerio-fast-fallback' };
+}
+
 async function checkUrlForTargets(url, targets) {
   await validatePublicUrl(url);
   await waitForDomain(url);
-  const browser = await getChromium().launch({ headless: true });
+  let browser;
+  try {
+    browser = await getChromium().launch(CHROMIUM_LAUNCH_OPTIONS);
+  } catch (launchErr) {
+    console.warn(`[ChangeWatch] Headless browser launch failed (${launchErr.message}). Switching to resilient HTML fallback for ${url}.`);
+    return await checkUrlWithCheerio(url, targets);
+  }
+
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
   const checkedAt = new Date();
   let response;
@@ -225,7 +378,7 @@ async function checkUrlForTargets(url, targets) {
     }
     return { targets: targets.length, status };
   } finally {
-    await browser.close();
+    if (browser) await browser.close().catch(() => {});
   }
 }
 
@@ -241,11 +394,83 @@ function compareVersions(left, right) {
   };
 }
 
+async function inspectPageWithCheerio(url) {
+  const cheerio = require('cheerio');
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 ChangeWatch/1.0',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!response.ok) throw new Error(`Target page returned HTTP ${response.status}`);
+  const html = await response.text();
+  const $ = cheerio.load(html);
+
+  const diskPath = path.join(PREVIEW_DIR, `picker-fast-${Date.now()}.png`);
+  const png = new PNG({ width: 1280, height: 720 });
+  for (let y = 0; y < 720; y++) {
+    for (let x = 0; x < 1280; x++) {
+      const idx = (1280 * y + x) << 2;
+      png.data[idx] = 17;     // #111827
+      png.data[idx + 1] = 24;
+      png.data[idx + 2] = 39;
+      png.data[idx + 3] = 255;
+    }
+  }
+  fs.writeFileSync(diskPath, PNG.sync.write(png));
+
+  const elements = [];
+  const matched = $('h1, h2, h3, h4, p, a, button, [data-testid], [class*="price" i], [id*="price" i], [class*="title" i], [class*="product" i], table, main, article');
+
+  let count = 0;
+  matched.each((_, node) => {
+    if (count >= 40) return false;
+    const $node = $(node);
+    const tag = (node.tagName || '').toLowerCase();
+    const id = $node.attr('id');
+    const className = ($node.attr('class') || '').trim().split(/\s+/).filter((c) => /^[a-zA-Z_-][\w-]*$/.test(c))[0];
+    const text = $node.text().replace(/\s+/g, ' ').trim();
+    if (!text && tag !== 'img') return;
+
+    let selector = tag;
+    if (id) {
+      selector = `#${id}`;
+    } else if (className) {
+      selector = `${tag}.${className}`;
+    }
+
+    const col = count % 3;
+    const row = Math.floor(count / 3);
+    const x = 30 + col * 410;
+    const y = 30 + row * 52;
+
+    elements.push({
+      selector,
+      label: text.slice(0, 90) || selector,
+      x,
+      y,
+      width: 380,
+      height: 42,
+    });
+    count++;
+  });
+
+  return {
+    screenshotPath: publicFilePath(diskPath),
+    width: 1280,
+    height: 720,
+    elements,
+  };
+}
+
 async function inspectPage(url) {
   await validatePublicUrl(url);
-  const browser = await getChromium().launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
+  let browser;
   try {
+    browser = await getChromium().launch(CHROMIUM_LAUNCH_OPTIONS);
+    const page = await browser.newPage({ viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1 });
     const response = await page.goto(url, { waitUntil: 'networkidle', timeout: 45_000 });
     if (!response || response.status() >= 400) throw new Error(`Page returned HTTP ${response?.status() || 0}.`);
     const diskPath = path.join(PREVIEW_DIR, `picker-${Date.now()}.png`);
@@ -283,8 +508,11 @@ async function inspectPage(url) {
         }).filter(Boolean).slice(0, 40);
     });
     return { screenshotPath: publicFilePath(diskPath), width: 1280, height: 720, elements };
+  } catch (err) {
+    console.warn(`[ChangeWatch] Inspector browser launch failed (${err.message}). Using Cheerio fallback.`);
+    return await inspectPageWithCheerio(url);
   } finally {
-    await browser.close();
+    if (browser) await browser.close().catch(() => {});
   }
 }
 

@@ -110,11 +110,26 @@ async function parseTargetInput(input) {
 }
 
 async function enqueueUrl(url, reason = 'scheduled') {
-  const jobId = `url-${crypto.createHash('sha256').update(url).digest('hex')}`;
-  const queue = getMonitorQueue();
-  const existing = await queue.getJob(jobId);
-  if (existing) return existing;
-  return queue.add('check-url', { url, reason }, { jobId });
+  try {
+    const jobId = `url-${crypto.createHash('sha256').update(url).digest('hex')}`;
+    const queue = getMonitorQueue();
+    const existing = await queue.getJob(jobId);
+    if (existing) return existing;
+    return await queue.add('check-url', { url, reason }, { jobId });
+  } catch (error) {
+    console.warn(`[ChangeWatch] Redis/BullMQ unavailable (${error.message}). Performing in-process monitoring check.`);
+    const { getTargetsByUrl } = require('./store');
+    const { checkUrlForTargets } = require('./monitoring');
+    const targets = getTargetsByUrl(url).filter((target) => target.active);
+    if (targets.length > 0) {
+      setImmediate(() => {
+        checkUrlForTargets(url, targets).catch((err) => {
+          console.error(`In-process check failed for ${url}:`, err.message);
+        });
+      });
+    }
+    return { id: `local-${Date.now()}` };
+  }
 }
 
 async function enqueueDueTargets() {

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "node start.js",
     "start": "node start.js",
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium",
     "check": "node --check src/index.js && node --check src/monitoring.js && node --check src/security.js && node --check src/alerts.js && node --check src/summarizer.js && node --check src/store.js && node --check src/services/worker.js && node --check src/redis.js"
   },
   "keywords": [],
@@ -14,6 +15,7 @@
   "type": "commonjs",
   "dependencies": {
     "bullmq": "^6.3.15",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "diff-match-patch": "^1.0.5",
     "dotenv": "^18.0.8",
