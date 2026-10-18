@@ -66,10 +66,39 @@ export default function Dashboard() {
   const [pickerMode, setPickerMode] = useState('watch');
   const [inspecting, setInspecting] = useState(false);
 
+  const [lastPickedSelector, setLastPickedSelector] = useState('');
+
   const selected = useMemo(
     () => targets.find((target) => target.id === selectedTarget) || null,
     [targets, selectedTarget],
   );
+
+  async function fetchSelectedTargetData(targetId) {
+    if (!targetId) {
+      setHistory([]); setVersions([]); setNumbers([]); setNotifications([]); setComparison(null);
+      return;
+    }
+    try {
+      const [historyData, versionData, numberData, notificationData] = await Promise.all([
+        api(`/api/targets/${targetId}/history`),
+        api(`/api/targets/${targetId}/versions`),
+        api(`/api/targets/${targetId}/number-series`),
+        api(`/api/targets/${targetId}/notifications`),
+      ]);
+      setHistory(historyData);
+      setVersions(versionData);
+      setNumbers(numberData);
+      setNotifications(notificationData);
+      if (versionData.length >= 2) {
+        setLeftVersionId((current) => current || versionData[1].id);
+        setRightVersionId((current) => current || versionData[0].id);
+      } else if (versionData.length === 1) {
+        setRightVersionId((current) => current || versionData[0].id);
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+    }
+  }
 
   async function refresh() {
     try {
@@ -80,9 +109,12 @@ export default function Dashboard() {
       setStats(dashboardData);
       setHealth(healthData.redis === 'connected' ? 'Online' : 'Redis starting');
       setError('');
+      if (selectedTarget) {
+        await fetchSelectedTargetData(selectedTarget);
+      }
     } catch (_requestError) {
       setHealth('Offline');
-      setError('Cannot reach the backend. Start Redis and run the backend on port 3001.');
+      setError('Cannot reach the backend. Check the server connection.');
     }
   }
 
@@ -97,33 +129,12 @@ export default function Dashboard() {
     if (left) setLeftVersionId(left);
     if (right) setRightVersionId(right);
     refresh();
-    const interval = setInterval(refresh, 12_000);
+    const interval = setInterval(refresh, 8_000);
     return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
-    if (!selectedTarget) {
-      setHistory([]); setVersions([]); setNumbers([]); setNotifications([]); setComparison(null);
-      return undefined;
-    }
-    let cancelled = false;
-    Promise.all([
-      api(`/api/targets/${selectedTarget}/history`),
-      api(`/api/targets/${selectedTarget}/versions`),
-      api(`/api/targets/${selectedTarget}/number-series`),
-      api(`/api/targets/${selectedTarget}/notifications`),
-    ]).then(([historyData, versionData, numberData, notificationData]) => {
-      if (cancelled) return;
-      setHistory(historyData);
-      setVersions(versionData);
-      setNumbers(numberData);
-      setNotifications(notificationData);
-      setLeftVersionId((current) => current || versionData[1]?.id || '');
-      setRightVersionId((current) => current || versionData[0]?.id || '');
-    }).catch((requestError) => {
-      if (!cancelled) setError(requestError.message);
-    });
-    return () => { cancelled = true; };
+    fetchSelectedTargetData(selectedTarget);
   }, [selectedTarget]);
 
   useEffect(() => {
@@ -178,7 +189,10 @@ export default function Dashboard() {
     setMessage('');
     try {
       await api(`/api/targets/${target.id}/check`, { method: 'POST' });
-      setMessage(`A check for “${target.name}” is queued. Refresh in a few seconds to see the result.`);
+      setMessage(`A check for “${target.name}” is queued. Checking now…`);
+      await refresh();
+      setTimeout(refresh, 2500);
+      setTimeout(refresh, 6000);
     } catch (requestError) {
       setError(requestError.message);
     }
@@ -225,6 +239,7 @@ export default function Dashboard() {
   }
 
   function selectRegion(selector) {
+    setLastPickedSelector(selector);
     if (pickerMode === 'ignore') {
       const items = form.ignoreSelectors.split(',').map((value) => value.trim()).filter(Boolean);
       updateForm('ignoreSelectors', [...new Set([...items, selector])].join(', '));
@@ -235,6 +250,29 @@ export default function Dashboard() {
     } else {
       updateForm('cssSelector', selector);
       setMessage(`Selected ${selector} as the watched region.`);
+    }
+  }
+
+  async function applySelectorToSelectedTarget() {
+    if (!selected || !lastPickedSelector) return;
+    try {
+      const patch = {};
+      if (pickerMode === 'ignore') {
+        const items = (selected.ignoreSelectors || '').split(',').map((v) => v.trim()).filter(Boolean);
+        patch.ignoreSelectors = [...new Set([...items, lastPickedSelector])].join(', ');
+      } else if (pickerMode === 'number') {
+        patch.numberSelector = lastPickedSelector;
+      } else {
+        patch.cssSelector = lastPickedSelector;
+      }
+      await api(`/api/targets/${selected.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      setMessage(`Saved ${lastPickedSelector} to “${selected.name}”!`);
+      await refresh();
+    } catch (requestError) {
+      setError(requestError.message);
     }
   }
 
@@ -300,7 +338,7 @@ export default function Dashboard() {
 
       <section className="details-grid">
         <section className="panel timeline-panel"><div className="section-title"><div><p className="eyebrow">VERSION TIMELINE</p><h2>{selected ? selected.name : 'Select a monitor'}</h2></div>{selected && <span className={statusClass(selected.active ? selected.status : 'PAUSED')}>{selected.active ? selected.status : 'PAUSED'}</span>}</div>{selected && <div className="monitor-meta"><span>Last checked <b>{formatDate(selected.lastCheckedAt)}</b></span><span>Last changed <b>{formatDate(selected.lastChangedAt)}</b></span><a href={`${API_BASE}/api/targets/${selected.id}/rss.xml`} target="_blank" rel="noreferrer">RSS feed ↗</a></div>}{!selected ? <p className="empty-copy">Choose a monitor to see its snapshots, alerts, visual diffs, and number history.</p> : <Timeline entries={history} onCompare={selectVersions} />}</section>
-        <section className="panel picker-panel"><div className="section-title"><div><p className="eyebrow">VISUAL PICKER</p><h2>Choose a region</h2></div><span className="step">02</span></div><p className="picker-intro">This opens the real public URL in the monitoring browser. Pick an element to watch, ignore, or use as a live number.</p><div className="picker-mode" role="group" aria-label="Visual picker action"><button className={pickerMode === 'watch' ? 'is-active' : ''} onClick={() => setPickerMode('watch')}>Watch</button><button className={pickerMode === 'ignore' ? 'is-active' : ''} onClick={() => setPickerMode('ignore')}>Ignore</button><button className={pickerMode === 'number' ? 'is-active' : ''} onClick={() => setPickerMode('number')}>Track number</button></div><div className="picker-controls"><input value={inspectUrl} onChange={(event) => setInspectUrl(event.target.value)} placeholder="https://example.com" /><button className="button button--dark" onClick={inspectPage} disabled={inspecting}>{inspecting ? 'Loading…' : 'Open picker'}</button></div><Picker preview={preview} onSelect={selectRegion} /></section>
+        <section className="panel picker-panel"><div className="section-title"><div><p className="eyebrow">VISUAL PICKER</p><h2>Choose a region</h2></div><span className="step">02</span></div><p className="picker-intro">This opens the real public URL in the monitoring browser. Pick an element to watch, ignore, or use as a live number.</p><div className="picker-mode" role="group" aria-label="Visual picker action"><button className={pickerMode === 'watch' ? 'is-active' : ''} onClick={() => setPickerMode('watch')}>Watch</button><button className={pickerMode === 'ignore' ? 'is-active' : ''} onClick={() => setPickerMode('ignore')}>Ignore</button><button className={pickerMode === 'number' ? 'is-active' : ''} onClick={() => setPickerMode('number')}>Track number</button></div><div className="picker-controls"><input value={inspectUrl} onChange={(event) => setInspectUrl(event.target.value)} placeholder="https://example.com" /><button className="button button--dark" onClick={inspectPage} disabled={inspecting}>{inspecting ? 'Loading…' : 'Open picker'}</button></div><Picker preview={preview} onSelect={selectRegion} selectedSelector={lastPickedSelector} pickerMode={pickerMode} selectedTargetName={selected?.name} onApplyToCurrent={selected ? applySelectorToSelectedTarget : null} /></section>
       </section>
 
       {selected && <section className="panel comparison-panel" id="comparison"><div className="section-title"><div><p className="eyebrow">SIDE-BY-SIDE REVIEW</p><h2>Compare any two versions</h2></div>{comparison && <span className="compare-percent">{comparison.changePercent}% changed</span>}</div><div className="version-selectors"><VersionSelect label="Before" value={leftVersionId} versions={versions} onChange={setLeftVersionId} /><VersionSelect label="After" value={rightVersionId} versions={versions} onChange={setRightVersionId} /></div><Comparison comparison={comparison} /></section>}
@@ -328,9 +366,70 @@ function Timeline({ entries, onCompare }) {
   return <div className="timeline">{entries.map((entry) => <article className="timeline-entry" key={entry.id}><span className={`timeline-dot timeline-dot--${String(entry.status).toLowerCase()}`} /><div className="timeline-body"><div><b>{entry.status === 'INITIAL' ? 'Baseline saved' : entry.message}</b><time>{formatDate(entry.checkedAt)}</time></div>{entry.changePercent > 0 && <p>{entry.changePercent}% of monitored text changed.</p>}{entry.aiSummary && <p className="ai-summary">✦ {entry.aiSummary}</p>}{Number.isFinite(entry.numberValue) && <p className="number-note">Tracked number: {formatNumber(entry.numberValue)}{entry.numberRaw ? ` (${entry.numberRaw})` : ''}</p>}{entry.summary?.added && <p className="diff diff--add">+ {entry.summary.added}</p>}{entry.summary?.removed && <p className="diff diff--remove">− {entry.summary.removed}</p>}{(entry.screenshotPath || entry.visualDiffPath) && <div className="screens">{entry.screenshotPath && <a href={publicUrl(entry.screenshotPath)} target="_blank" rel="noreferrer">Screenshot ↗</a>}{entry.visualDiffPath && <a href={publicUrl(entry.visualDiffPath)} target="_blank" rel="noreferrer">Visual diff ↗</a>}{entry.previousVersionId && entry.versionId && <button onClick={() => onCompare(entry.previousVersionId, entry.versionId)}>Compare ↗</button>}</div>}</div></article>)}</div>;
 }
 
-function Picker({ preview, onSelect }) {
+function Picker({ preview, onSelect, selectedSelector, pickerMode, selectedTargetName, onApplyToCurrent }) {
   if (!preview) return <div className="picker-empty"><span>⌖</span><p>Your interactive browser preview will appear here.</p></div>;
-  return <div><div className="preview-wrap"><img src={publicUrl(preview.screenshotPath)} alt="Page preview for visual selector" />{preview.elements.map((element, index) => <button key={`${element.selector}-${index}`} className="pick-region" style={{ left: `${(element.x / preview.width) * 100}%`, top: `${(element.y / preview.height) * 100}%`, width: `${(element.width / preview.width) * 100}%`, height: `${(element.height / preview.height) * 100}%` }} onClick={() => onSelect(element.selector)} title={`${element.label} — ${element.selector}`}><span>{index + 1}</span></button>)}</div><div className="candidate-list">{preview.elements.map((element, index) => <button key={`${element.selector}-item-${index}`} onClick={() => onSelect(element.selector)}><i>{index + 1}</i><span>{element.label || element.selector}</span><code>{element.selector}</code></button>)}</div></div>;
+  return (
+    <div>
+      {selectedSelector && (
+        <div className="picker-selected-card">
+          <div className="picker-selected-info">
+            <span className="picker-selected-badge">✓ {pickerMode === 'number' ? 'Track Number' : pickerMode === 'ignore' ? 'Ignore' : 'Watch'}</span>
+            <code>{selectedSelector}</code>
+          </div>
+          <div className="picker-selected-actions">
+            <button type="button" className="text-button" onClick={() => document.querySelector('.create-panel')?.scrollIntoView({ behavior: 'smooth' })}>
+              View in Form ↑
+            </button>
+            {onApplyToCurrent && (
+              <button type="button" className="button button--dark button--small" onClick={onApplyToCurrent}>
+                Save to “{selectedTargetName}”
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="preview-wrap">
+        <img src={publicUrl(preview.screenshotPath)} alt="Page preview for visual selector" />
+        {preview.elements.map((element, index) => {
+          const isSelected = selectedSelector === element.selector;
+          return (
+            <button
+              type="button"
+              key={`${element.selector}-${index}`}
+              className={`pick-region ${isSelected ? 'pick-region--active' : ''}`}
+              style={{
+                left: `${(element.x / preview.width) * 100}%`,
+                top: `${(element.y / preview.height) * 100}%`,
+                width: `${(element.width / preview.width) * 100}%`,
+                height: `${(element.height / preview.height) * 100}%`,
+              }}
+              onClick={() => onSelect(element.selector)}
+              title={`${element.label} — ${element.selector}`}
+            >
+              <span>{isSelected ? '✓' : index + 1}</span>
+            </button>
+          );
+        })}
+      </div>
+      <div className="candidate-list">
+        {preview.elements.map((element, index) => {
+          const isSelected = selectedSelector === element.selector;
+          return (
+            <button
+              type="button"
+              key={`${element.selector}-item-${index}`}
+              className={isSelected ? 'is-selected' : ''}
+              onClick={() => onSelect(element.selector)}
+            >
+              <i>{isSelected ? '✓' : index + 1}</i>
+              <span>{element.label || element.selector}</span>
+              <code>{element.selector}</code>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function VersionSelect({ label, value, versions, onChange }) { return <label className="version-select"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value)}><option value="">Choose a version</option>{versions.map((version) => <option value={version.id} key={version.id}>{formatDate(version.createdAt)}{version.numberValue !== null && version.numberValue !== undefined ? ` · ${formatNumber(version.numberValue)}` : ''}</option>)}</select></label>; }
